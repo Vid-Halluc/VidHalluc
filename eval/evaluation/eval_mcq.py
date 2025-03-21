@@ -4,8 +4,8 @@ import re
 
 
 def extract_answer(model_answer):
-    """Extract all answer choices (A-D) from the model's response.
-
+    """Extract answer choices (A-D) from the model's response.
+    
     Returns a set of uppercase letters found in the answer.
     """
     choices = re.findall(r'\b[A-D]\b', model_answer)
@@ -16,10 +16,10 @@ def extract_answer(model_answer):
 
 def match_model_answer(data):
     """
-    For cases where the model output does not include a direct choice letter,
-    this function searches the provided "Choices" mapping for an option whose
-    value appears in the model answer text. The found choice key is stored in
-    the field "Matched Answer" (or "None" if no match is found).
+    For cases where the model output does not include a direct answer letter,
+    this function searches each question's "Choices" to find an option whose
+    text appears in the model answer. The found choice key is stored in the 
+    "Matched Answer" field (or "None" if no match is found).
     """
     for key, clips in data.items():
         for clip_id, clip_data in clips.items():
@@ -33,31 +33,24 @@ def match_model_answer(data):
             clip_data["Matched Answer"] = matched_answer if matched_answer else "None"
 
 
-def compute_MCQ(gt_data, pred_data):
+def compute_MCQ(data):
     """
-    Compute the number of MCQ questions and the number answered correctly.
-    For each question, the ground truth "Correct Answer" is compared with the
-    prediction's "Model Answer" (or "Matched Answer" if no answer letter is found).
+    Compute the total number of MCQ questions and the number of correct answers.
+    For each question, the ground truth "Correct Answer" is compared with the 
+    answer extracted from the model's "Model Answer" (or "Matched Answer" if no
+    answer letter is directly found).
     """
     count = 0
     correct_count = 0
-    for key, gt_values in gt_data.items():
-        pred_values = pred_data.get(key, {})
-        if not pred_values:
-            print(f"Missing key in prediction: {key}")
-            continue
-        for video, gt_question in gt_values.items():
+    for key, clips in data.items():
+        for clip_id, clip_data in clips.items():
             count += 1
-            correct_answer = gt_question['Correct Answer'].strip().upper()
+            correct_answer = clip_data.get('Correct Answer', "").strip().upper()
             correct_answer_set = set(re.findall(r'[A-D]', correct_answer))
-            pred_question = pred_values.get(video, {})
-            if not pred_question:
-                print(f"Missing video {video} in prediction for key {key}")
-                continue
-            model_answer_set = extract_answer(pred_question.get('Model Answer', ""))
-            # If no direct answer letter is found, try the "Matched Answer"
+            model_answer_set = extract_answer(clip_data.get('Model Answer', ""))
+            # If no answer letter is found in the model's response, try using "Matched Answer"
             if not model_answer_set:
-                matched = pred_question.get("Matched Answer", "").strip().upper()
+                matched = clip_data.get("Matched Answer", "").strip().upper()
                 if matched and matched != "NONE":
                     model_answer_set = set([matched])
             if model_answer_set == correct_answer_set:
@@ -78,17 +71,14 @@ if __name__ == "__main__":
         print(f"Error loading file {file_path}: {e}")
         sys.exit(1)
 
-    # The JSON file must have "gt" and "pred" top-level keys
-    gt_data = data.get("gt", {})
-    pred_data = data.get("pred", {})
-    if not gt_data or not pred_data:
-        print("Input JSON must contain both 'gt' and 'pred' keys.")
+    if not data:
+        print("No data in input file.")
         sys.exit(1)
 
-    # Run match_model_answer on the prediction data to populate "Matched Answer" if needed.
-    match_model_answer(pred_data)
+    # Update the "Matched Answer" field for each question
+    match_model_answer(data)
 
-    total_questions, correct_questions = compute_MCQ(gt_data, pred_data)
+    total_questions, correct_questions = compute_MCQ(data)
     if total_questions > 0:
         print(correct_questions, total_questions)
         accuracy = correct_questions / total_questions
